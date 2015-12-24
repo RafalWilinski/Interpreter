@@ -10,9 +10,7 @@ char **args;
 
 // @TODOS
 // -Override ctrl+c signal to stop child task - executor
-// -Fix output to file
 // -Add input from file 
-// -Add support for double >> 
 
 int get_line_length(char *line) {
 	int i = 0;
@@ -56,7 +54,7 @@ char** isolate_command_arguments(char** arguments) {
 	}
 
 
-	char **cmd_args = (char**) calloc(sizeof(char*), arguments_count);
+	char **cmd_args = (char**) calloc(sizeof(char*), arguments_count + 1);
 	cmd_args[0] = arguments[0];
 	i = 1;
 
@@ -74,6 +72,9 @@ char** isolate_command_arguments(char** arguments) {
 		i++;
 	}
 
+	// Terminate array with NULL
+	cmd_args[iter] = '\0';
+
 	return cmd_args;
 }
 
@@ -90,8 +91,6 @@ int execute_line(char *line) {
 		int stdin_copy = dup(0);
 		int stdout_copy = dup(1);
 
-		char **command_args = isolate_command_arguments(args);
-
 		while(args[argc]) {
 			if(strcmp(args[argc], ">") == 0) { // Print output to file
 				if(args[argc+1]) {
@@ -107,11 +106,16 @@ int execute_line(char *line) {
 			argc++;
 		}
 
+		char **command_args = isolate_command_arguments(args);
+
+
+
 		execvp(command_args[0], command_args);
 		close(file_descriptor);
 		perror("execvp");
 		exit(0);
 	}
+
 	wait(NULL);
 	printf("Execute command end.\n");
 	return 0;
