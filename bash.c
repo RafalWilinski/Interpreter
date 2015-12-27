@@ -78,9 +78,8 @@ char** isolate_command_arguments(char** arguments) {
 	return cmd_args;
 }
 
-int execute_line(char *line) {
+int execute_line(char **args) {
 	int file_descriptor;
-	char** args = isolate_arguments(line);
 	int argc = 0;
 
 	if(strcmp(args[0], "exit") == 0) exit(0);
@@ -102,13 +101,19 @@ int execute_line(char *line) {
 					close(1);
 					file_descriptor = open(args[argc+1], O_WRONLY | O_APPEND, 0644);
 				}
+			} else if (strcmp(args[argc], "<") == 0) { // Input from file
+				if(args[argc+1]) {
+					close(0);
+
+					//@todo
+				}
 			}
 			argc++;
 		}
 
+		fprintf(stdout, "Executing...");
+
 		char **command_args = isolate_command_arguments(args);
-
-
 
 		execvp(command_args[0], command_args);
 		close(file_descriptor);
@@ -121,15 +126,32 @@ int execute_line(char *line) {
 	return 0;
 }
 
-int main() {
-	char* line;
-	while((line=readline("sh > ")) != NULL) {
-		if(*line) {
-			add_history(line);
-			execute_line(line);
-			free(line);
+int main(int argc, char** argv) {
+
+	if(argc >= 2) {
+		// Batch mode
+		int i = 0;
+		char** arguments = (char**) calloc(sizeof(char*), argc);
+
+		for(i = 0; i < argc - 1; i++) {
+			arguments[i] = argv[i + 1];
 		}
+		arguments[argc] = '\0';
+
+		execute_line(argv);
 	}
-	printf("\nInterpreter closed.\n");
-	exit(0);
+	else {
+		// Interactive mode
+		char* line;
+
+		while((line=readline("sh > ")) != NULL) {
+			if(*line) {
+				add_history(line);
+				execute_line(isolate_arguments(line));
+				free(line);
+			}
+		}
+		printf("\nInterpreter closed.\n");
+		exit(0);
+	}
 }
