@@ -6,7 +6,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+typedef int bool;
+#define true 1
+#define false 0
+
 char **args;
+bool batch_mode = false;
 
 // @TODOS
 // -Override ctrl+c signal to stop child task - executor
@@ -61,12 +66,13 @@ char** isolate_command_arguments(char** arguments) {
 	// Until there are more arguments
 	while(arguments[i]) {
 
-		// If string begins with - (or --) it's flag
-		if(arguments[i][0] == '-') {
+		// If string begins with < or > ignore it and also next argument
+		if(arguments[i][0] != '<' || arguments[i][0] != '>') {
 
 			//Put it into array as iter-th argument
 			cmd_args[iter] = arguments[i];
 			iter++;
+			i++;
 		}
 
 		i++;
@@ -122,7 +128,7 @@ int execute_line(char **args) {
 	}
 
 	wait(NULL);
-	printf("Execute command end.\n");
+	printf("------------------------------\n");
 	return 0;
 }
 
@@ -130,8 +136,12 @@ int main(int argc, char** argv) {
 
 	if(argc >= 2) {
 		// Batch mode
+		printf("Batch mode...\n");
+
 		int i = 0;
 		char** arguments = (char**) calloc(sizeof(char*), argc);
+
+		batch_mode = true;
 
 		for(i = 0; i < argc - 1; i++) {
 			arguments[i] = argv[i + 1];
