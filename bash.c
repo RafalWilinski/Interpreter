@@ -50,9 +50,9 @@ char** isolate_command_arguments(char** arguments) {
 	int arguments_count = 1;
 	int iter = 1;
 
-	// Find how many arguments are there, +1 every - sign
+	// Find how many arguments are there, +1 every sign with is not < or >
 	while(arguments[i]) {
-		if(arguments[i][0] == '-') {
+		if(arguments[i][0] != '<' || arguments[i][0] != '>') {
 			arguments_count++;
 		}
 		i++;
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
 
 	if(argc >= 2) {
 		// Batch mode
-		printf("Batch mode...\n");
+		printf("Batch mode... Args: %d\n", argc);
 
 		int i = 0;
 		char** arguments = (char**) calloc(sizeof(char*), argc);
@@ -144,8 +144,10 @@ int main(int argc, char** argv) {
 		batch_mode = true;
 
 		for(i = 0; i < argc - 1; i++) {
+			printf("%s, ", argv[i + 1]);
 			arguments[i] = argv[i + 1];
 		}
+		printf("\n");
 		arguments[argc] = '\0';
 
 		execute_line(argv);
