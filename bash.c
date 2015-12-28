@@ -10,6 +10,8 @@ typedef int bool;
 #define true 1
 #define false 0
 
+#define FILE_BUFFER_SIZE 1000
+
 char **args;
 bool batch_mode = false;
 
@@ -48,7 +50,7 @@ char** isolate_arguments(char* line) {
 char** isolate_command_arguments(char** arguments) {
 	int i = 0;
 	int arguments_count = 1;
-	int iter = 1;
+	int iter = 0;
 
 	// Find how many arguments are there, +1 every sign with is not < or >
 	while(arguments[i]) {
@@ -60,8 +62,8 @@ char** isolate_command_arguments(char** arguments) {
 
 
 	char **cmd_args = (char**) calloc(sizeof(char*), arguments_count + 1);
-	cmd_args[0] = arguments[0];
-	i = 1;
+	// cmd_args[0] = arguments[0];
+	i = 0;
 
 	// Until there are more arguments
 	while(arguments[i]) {
@@ -72,6 +74,8 @@ char** isolate_command_arguments(char** arguments) {
 			//Put it into array as iter-th argument
 			cmd_args[iter] = arguments[i];
 			iter++;
+		}
+		else {
 			i++;
 		}
 
@@ -87,6 +91,84 @@ char** isolate_command_arguments(char** arguments) {
 int execute_line(char **args) {
 	int file_descriptor;
 	int argc = 0;
+	int i = 0;
+	int n = 0;
+	bool has_input_file = false;
+
+	char **in_arguments = NULL;
+
+	while(args[i]) {
+		if (strcmp(args[i], "<") == 0) { 										// Input from file
+			if(args[i+1]) {
+				int stdin_fd = open(args[i+1], O_RDONLY, 0644);  				// Open file
+				FILE* fp = fdopen(stdin_fd, "r");								// Convert to higher-level descriptor
+
+				has_input_file = true;
+
+				fseek(fp, 0, SEEK_END);  										// Seek to end of the file
+				unsigned long size = ftell(fp);									// Get position of pointer, tell the difference
+				fseek(fp, 0, SEEK_SET);											// Rewind pointer to beginning of file
+
+				char *in_buffer = (char*) malloc(sizeof(char) * size + 1);		// Allocate array of that size
+
+				fread(in_buffer, sizeof(char), size, fp);						// Read file contents into array
+				in_buffer[size] = '\0';
+
+				printf("Size: %lu, Array: %s\n", size, in_buffer);
+
+				in_arguments = isolate_arguments(in_buffer); 					// Isolate arguments read from file
+
+				printf("Arguments from file:\n");
+
+				for(n = 0; n < size; n++) {
+					printf("%s\n", in_arguments[n]);
+				}
+			}
+		}
+
+		i++;
+	}
+
+	//Append potential array from file into passed as argument
+	i = 0;
+
+	int final_length = 0;
+	while(args[i]) {
+		i++;
+	}
+
+	final_length = i;
+	i = 0;
+
+	if(has_input_file) {
+		while(in_arguments[i]) {
+			i++;
+		}
+		final_length += i;
+	}
+
+	printf("Final array length: %d\n", final_length);
+
+	char **final_array = (char**) calloc(sizeof(char*), final_length + 1);
+
+	i=0;
+
+	if(has_input_file) {
+		while(in_arguments[i]) {
+			final_array[i] = in_arguments[i];
+			i++;
+		}
+	}
+
+	int offset = i;
+	i = 0;
+
+	while(args[i]) {
+		final_array[offset + i] = args[i];
+		i++;
+	}
+
+	final_array[offset + i] = '\0';
 
 	if(strcmp(args[0], "exit") == 0) exit(0);
 
@@ -96,30 +178,32 @@ int execute_line(char **args) {
 		int stdin_copy = dup(0);
 		int stdout_copy = dup(1);
 
-		while(args[argc]) {
-			if(strcmp(args[argc], ">") == 0) { // Print output to file
-				if(args[argc+1]) {
+		while(final_array[argc]) {
+			if(strcmp(final_array[argc], ">") == 0) { // Print output to file
+				if(final_array[argc+1]) {
 					close(1);
-					file_descriptor = open(args[argc+1], O_WRONLY | O_CREAT, 0644);
+					file_descriptor = open(final_array[argc+1], O_WRONLY | O_CREAT, 0644);
 				}
-			} else if (strcmp(args[argc], ">>") == 0)  { // Append output to file
-				if(args[argc+1]) {
+			} else if (strcmp(final_array[argc], ">>") == 0)  { // Append output to file
+				if(final_array[argc+1]) {
 					close(1);
-					file_descriptor = open(args[argc+1], O_WRONLY | O_APPEND, 0644);
+					file_descriptor = open(final_array[argc+1], O_WRONLY | O_APPEND, 0644);
 				}
-			} else if (strcmp(args[argc], "<") == 0) { // Input from file
-				if(args[argc+1]) {
-					close(0);
+			} 
 
-					//@todo
-				}
-			}
 			argc++;
 		}
 
-		fprintf(stdout, "Executing...");
+		char **command_args = isolate_command_arguments(final_array);
 
-		char **command_args = isolate_command_arguments(args);
+		printf("Final array: \n");
+		i = 0;
+		while(command_args[i]) {
+			printf("%s\n", command_args[i]);
+			i++;
+		}
+
+		printf("\n\n------");
 
 		execvp(command_args[0], command_args);
 		close(file_descriptor);
@@ -134,9 +218,11 @@ int execute_line(char **args) {
 
 int main(int argc, char** argv) {
 
+	int n;
+
 	if(argc >= 2) {
 		// Batch mode
-		printf("Batch mode... Args: %d\n", argc);
+		printf("Batch mode... Args: %d\n", argc - 1);
 
 		int i = 0;
 		char** arguments = (char**) calloc(sizeof(char*), argc);
@@ -144,13 +230,12 @@ int main(int argc, char** argv) {
 		batch_mode = true;
 
 		for(i = 0; i < argc - 1; i++) {
-			printf("%s, ", argv[i + 1]);
 			arguments[i] = argv[i + 1];
 		}
-		printf("\n");
+
 		arguments[argc] = '\0';
 
-		execute_line(argv);
+		execute_line(arguments);
 	}
 	else {
 		// Interactive mode
