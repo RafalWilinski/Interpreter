@@ -4,6 +4,7 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <string.h>
+#include <sys/types.h>
 #include <stdlib.h>
 
 typedef int bool;
@@ -17,12 +18,13 @@ bool batch_mode = false;														// Indicates whether interpreter had suppl
 // Override ctrl+c signal to stop child task - executor
 // Simplify functions such as array length
 // Fix warnings generated during compilation with -Wall flag
+// Send signal when background process ends
 
 // Scope:
 // DONE - Możliwość uruchamiania poleceń z dowolną liczbą argumentów w trybie pierwszoplanowym (interpreter oczekuje na zakończenie wykonania procesu). Wymagane na ocenę 3.0.
 // DONE - Obsługa przekierowań strumieni wejściowych i wyjściowych do i z plików. Wymagane na ocenę 3.0.
 // ???  - Obsługa komentarzy.
-// TODO - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
+// IN_PROGRESS - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
 // DONE - Obsługa trybu interaktywnego i wsadowego. Wymagane na ocenę 3.5.
 // TODO - Obsługa procesów zombie. Wymagane na ocenę 4.0.
 
@@ -52,12 +54,12 @@ char *trim(char *str) {
 
     /* Move the front and back pointers to address the first non-whitespace
      * characters from each end. */
-    while( isspace(*frontp) ) { 
+    while(isspace(*frontp)) { 
     	++frontp; 
     }
 
     if( endp != frontp ) {
-        while( isspace(*(--endp)) && endp != frontp ) {}
+        while(isspace(*(--endp)) && endp != frontp ) { /* do nothing */ }
     }
 
     if( str + len - 1 != endp )
@@ -108,7 +110,10 @@ char** isolate_command_arguments(char** arguments) {
 	int iter = 0;
 
 	while(arguments[i]) {														// Find how many arguments are there, +1 every sign with is not < or >
-		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0)) {
+		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0) 
+			&& (strcmp(arguments[i], "2>") != 0) && (strcmp(arguments[i], "&>") != 0)
+			 && (strcmp(arguments[i], ">>") != 0) && (strcmp(arguments[i], "&") != 0)) {
+
 			arguments_count++;
 		} else i++;																// Skip this and also next sign
 		i++;
@@ -118,7 +123,10 @@ char** isolate_command_arguments(char** arguments) {
 	i = 0;
 
 	while(arguments[i]) {
-		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0)) { // If string begins with < or > ignore it and also next argument
+		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0) // If string begins with < or > ignore it and also next argument
+			&& (strcmp(arguments[i], "2>") != 0) && (strcmp(arguments[i], "&>") != 0) 
+			&& (strcmp(arguments[i], ">>") != 0) && (strcmp(arguments[i], "&") != 0)) { 	
+
 			cmd_args[iter] = arguments[i];										//Put it into array as iter-th argument
 			iter++;
 		} else  i++;
@@ -137,6 +145,7 @@ int execute_line(char **args) {
 	int i = 0;
 	int n = 0;
 	bool has_input_file = false;
+	bool is_background_process = false;
 
 	char **in_arguments = NULL;
 
@@ -178,24 +187,19 @@ int execute_line(char **args) {
 	i = 0;
 
 	int final_length = 0;
-	while(args[i]) {
-		i++;
-	}
+	while(args[i]) { i++; }
 
 	final_length = i;
 	i = 0;
 
 	if(has_input_file) {														// If there was < (command supplied from file) append to final args array
-		while(in_arguments[i]) {
-			i++;
-		}
+		while(in_arguments[i]) { i++; }
 		final_length += i;
 	}
 
+	i = 0;
+
 	char **final_array = (char**) calloc(sizeof(char*), final_length + 1);		// Allocate space for it
-
-	i=0;
-
 	if(has_input_file) {														// If there was < (command supplied from file) append to final args array
 		while(in_arguments[i]) {
 			final_array[i] = in_arguments[i];
@@ -215,11 +219,21 @@ int execute_line(char **args) {
 
 
 	// Final array done, now process arguments
-
 	if(strcmp(args[0], "exit") == 0) exit(0);
 
-	if(fork() == 0) {									
+	argc = 0;
+	while(final_array[argc]) {
+		if (strcmp(final_array[argc], "&") == 0) {
+			is_background_process = true;
+		}
+		argc++;
+	}
 
+	int child_pid = fork();
+	int child_status;
+
+	if(child_pid == 0) {	
+		argc = 0;
 		while(final_array[argc]) {
 			if(strcmp(final_array[argc], ">") == 0) { 							// Print output to file
 				if(final_array[argc+1]) {
@@ -232,35 +246,40 @@ int execute_line(char **args) {
 					file_descriptor = open(final_array[argc+1], O_WRONLY | O_APPEND, 0644);
 				}
 			} 
-
 			argc++;
 		}
 
 		char **command_args = isolate_command_arguments(final_array);
 
 		// Just for debug purpouses
-		// printf("Final array: \n");
-		// i = 0;
-		// while(command_args[i]) {
-		// 	printf("* %s\n", command_args[i]);
-		// 	i++;
-		// }
+		printf("Final array: \n");
+		i = 0;
+		while(command_args[i]) {
+			printf("* %s\n", command_args[i]);
+			i++;
+		}
 
-		// printf("----------\n");
+		printf("----------\n");
 
 		execvp(command_args[0], command_args);
-		close(file_descriptor);
 		perror("execvp");
 		exit(0);
+	} else {
+		if(!is_background_process) {
+			waitpid(child_pid, &child_status, 0);
+			printf("Child status: %d\n", child_status);
+			return 0;
+		}
+		else {
+			printf("%d\n", child_pid);
+		}
+		fflush(stdout);
+		printf("Return\n");
+		return 0;
 	}
-
-	wait(NULL);
-	return 0;
 }
 
 int main(int argc, char** argv) {
-
-	int n;
 
 	if(argc >= 2) {
 		// Batch mode
