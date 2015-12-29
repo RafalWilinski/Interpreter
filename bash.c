@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <string.h>
@@ -27,6 +28,11 @@ bool batch_mode = false;														// Indicates whether interpreter had suppl
 // IN_PROGRESS - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
 // DONE - Obsługa trybu interaktywnego i wsadowego. Wymagane na ocenę 3.5.
 // TODO - Obsługa procesów zombie. Wymagane na ocenę 4.0.
+
+int background_process_end_notification(int signum) {
+	printf("Odebrano sygnal %d\n", signum);
+    exit(0);
+}
 
 int get_line_length(char *line) {
 	int i = 0;
@@ -230,10 +236,12 @@ int execute_line(char **args) {
 	}
 
 	int child_pid = fork();
+	int background_task_executor;
 	int child_status;
 
 	if(child_pid == 0) {	
 		argc = 0;
+
 		while(final_array[argc]) {
 			if(strcmp(final_array[argc], ">") == 0) { 							// Print output to file
 				if(final_array[argc+1]) {
@@ -252,29 +260,39 @@ int execute_line(char **args) {
 		char **command_args = isolate_command_arguments(final_array);
 
 		// Just for debug purpouses
-		printf("Final array: \n");
-		i = 0;
-		while(command_args[i]) {
-			printf("* %s\n", command_args[i]);
-			i++;
+		// printf("Final array: \n");
+		// i = 0;
+		// while(command_args[i]) {
+		// 	printf("* %s\n", command_args[i]);
+		// 	i++;
+		// }
+
+		// printf("----------\n");
+
+		if(is_background_process) {
+			background_task_executor = fork();
+			if(background_task_executor == 0) {
+				execvp(command_args[0], command_args);
+			} else {
+				int s = 0;
+				waitpid(background_task_executor, &s, 0);
+				printf("\n%d done\n", getpid());
+			}
+		} else {
+			execvp(command_args[0], command_args);
 		}
 
-		printf("----------\n");
-
-		execvp(command_args[0], command_args);
 		perror("execvp");
 		exit(0);
+
 	} else {
 		if(!is_background_process) {
 			waitpid(child_pid, &child_status, 0);
-			printf("Child status: %d\n", child_status);
 			return 0;
-		}
-		else {
-			printf("%d\n", child_pid);
+		} else {
+			printf("%d\n", background_task_executor);
 		}
 		fflush(stdout);
-		printf("Return\n");
 		return 0;
 	}
 }
