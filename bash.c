@@ -10,14 +10,21 @@ typedef int bool;
 #define true 1
 #define false 0
 
-#define FILE_BUFFER_SIZE 1000
-
 char **args;
-bool batch_mode = false;
+bool batch_mode = false;														// Indicates whether interpreter had supplied runtime arguments	
 
 // @TODOS
-// -Override ctrl+c signal to stop child task - executor
-// -Add input from file 
+// Override ctrl+c signal to stop child task - executor
+// Simplify functions such as array length
+// Fix warnings generated during compilation with -Wall flag
+
+// Scope:
+// DONE - Możliwość uruchamiania poleceń z dowolną liczbą argumentów w trybie pierwszoplanowym (interpreter oczekuje na zakończenie wykonania procesu). Wymagane na ocenę 3.0.
+// DONE - Obsługa przekierowań strumieni wejściowych i wyjściowych do i z plików. Wymagane na ocenę 3.0.
+// ???  - Obsługa komentarzy.
+// TODO - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
+// DONE - Obsługa trybu interaktywnego i wsadowego. Wymagane na ocenę 3.5.
+// TODO - Obsługa procesów zombie. Wymagane na ocenę 4.0.
 
 int get_line_length(char *line) {
 	int i = 0;
@@ -27,14 +34,61 @@ int get_line_length(char *line) {
 	return i;
 }
 
+// Remove whitespace characters from back and from of chars chain
+char *trim(char *str) {
+    size_t len = 0;
+    char *frontp = str;
+    char *endp = NULL;
+
+    if( str == NULL ) { 
+    	return NULL; 
+    }
+    if( str[0] == '\0' ) { 
+    	return str; 
+    }
+
+    len = strlen(str);
+    endp = str + len;
+
+    /* Move the front and back pointers to address the first non-whitespace
+     * characters from each end. */
+    while( isspace(*frontp) ) { 
+    	++frontp; 
+    }
+
+    if( endp != frontp ) {
+        while( isspace(*(--endp)) && endp != frontp ) {}
+    }
+
+    if( str + len - 1 != endp )
+        *(endp + 1) = '\0';
+    else if( frontp != str &&  endp == frontp )
+        *str = '\0';
+
+    /* Shift the string so that it starts at str so that if it's dynamically
+     * allocated, we can still free it on the returned pointer.  Note the reuse
+     * of endp to mean the front of the string buffer now.
+     */
+    endp = str;
+    if( frontp != str )
+    {
+        while( *frontp ) { *endp++ = *frontp++; }
+        *endp = '\0';
+    }
+
+
+    return str;
+}
+
+// Basing on string from readline returns 2D array of arguments
 char** isolate_arguments(char* line) {
 	args = (char**) calloc(sizeof(char*), 100);
 	int argc = 0;
 	int i = 0;
 	int j = 0;
 
-	while(line[i]) {
-		if(line[i] == ' ') {
+	while(line[i]) {								
+		if(line[i] == ' ') {													// If space sign was encountered, terminate array at this place and put predecessor to 2d array
 			line[i]='\0';
 			args[argc] = &line[j];
 			j = i+1;
@@ -47,43 +101,32 @@ char** isolate_arguments(char* line) {
 	return args;
 }
 
+// From 2D char array returns only valid for execvp arguments (stripping < and > signs with its descendant)
 char** isolate_command_arguments(char** arguments) {
 	int i = 0;
 	int arguments_count = 1;
 	int iter = 0;
 
-	// Find how many arguments are there, +1 every sign with is not < or >
-	while(arguments[i]) {
-		if(arguments[i][0] != '<' || arguments[i][0] != '>') {
+	while(arguments[i]) {														// Find how many arguments are there, +1 every sign with is not < or >
+		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0)) {
 			arguments_count++;
-		}
+		} else i++;																// Skip this and also next sign
 		i++;
 	}
-
 
 	char **cmd_args = (char**) calloc(sizeof(char*), arguments_count + 1);
-	// cmd_args[0] = arguments[0];
 	i = 0;
 
-	// Until there are more arguments
 	while(arguments[i]) {
-
-		// If string begins with < or > ignore it and also next argument
-		if(arguments[i][0] != '<' || arguments[i][0] != '>') {
-
-			//Put it into array as iter-th argument
-			cmd_args[iter] = arguments[i];
+		if((strcmp(arguments[i], "<") != 0) && (strcmp(arguments[i], ">") != 0)) { // If string begins with < or > ignore it and also next argument
+			cmd_args[iter] = arguments[i];										//Put it into array as iter-th argument
 			iter++;
-		}
-		else {
-			i++;
-		}
+		} else  i++;
 
 		i++;
 	}
 
-	// Terminate array with NULL
-	cmd_args[iter] = '\0';
+	cmd_args[iter] = '\0';														// Terminate array with NULL
 
 	return cmd_args;
 }
@@ -116,20 +159,22 @@ int execute_line(char **args) {
 
 				printf("Size: %lu, Array: %s\n", size, in_buffer);
 
-				in_arguments = isolate_arguments(in_buffer); 					// Isolate arguments read from file
+				in_arguments = isolate_arguments(trim(in_buffer)); 				// Isolate arguments read from file, trim whitespace also
 
 				printf("Arguments from file:\n");
 
 				for(n = 0; n < size; n++) {
 					printf("%s\n", in_arguments[n]);
 				}
+
+				printf("-------------------\n");
 			}
 		}
 
 		i++;
 	}
 
-	//Append potential array from file into passed as argument
+	//Section: Append potential array from file into passed as argument
 	i = 0;
 
 	int final_length = 0;
@@ -140,20 +185,18 @@ int execute_line(char **args) {
 	final_length = i;
 	i = 0;
 
-	if(has_input_file) {
+	if(has_input_file) {														// If there was < (command supplied from file) append to final args array
 		while(in_arguments[i]) {
 			i++;
 		}
 		final_length += i;
 	}
 
-	printf("Final array length: %d\n", final_length);
-
-	char **final_array = (char**) calloc(sizeof(char*), final_length + 1);
+	char **final_array = (char**) calloc(sizeof(char*), final_length + 1);		// Allocate space for it
 
 	i=0;
 
-	if(has_input_file) {
+	if(has_input_file) {														// If there was < (command supplied from file) append to final args array
 		while(in_arguments[i]) {
 			final_array[i] = in_arguments[i];
 			i++;
@@ -170,21 +213,20 @@ int execute_line(char **args) {
 
 	final_array[offset + i] = '\0';
 
+
+	// Final array done, now process arguments
+
 	if(strcmp(args[0], "exit") == 0) exit(0);
 
-	if(fork() == 0) {
-
-		// Copy reference to STDIN and STDOUT
-		int stdin_copy = dup(0);
-		int stdout_copy = dup(1);
+	if(fork() == 0) {									
 
 		while(final_array[argc]) {
-			if(strcmp(final_array[argc], ">") == 0) { // Print output to file
+			if(strcmp(final_array[argc], ">") == 0) { 							// Print output to file
 				if(final_array[argc+1]) {
 					close(1);
 					file_descriptor = open(final_array[argc+1], O_WRONLY | O_CREAT, 0644);
 				}
-			} else if (strcmp(final_array[argc], ">>") == 0)  { // Append output to file
+			} else if (strcmp(final_array[argc], ">>") == 0)  { 				// Append output to file
 				if(final_array[argc+1]) {
 					close(1);
 					file_descriptor = open(final_array[argc+1], O_WRONLY | O_APPEND, 0644);
@@ -196,14 +238,15 @@ int execute_line(char **args) {
 
 		char **command_args = isolate_command_arguments(final_array);
 
-		printf("Final array: \n");
-		i = 0;
-		while(command_args[i]) {
-			printf("%s\n", command_args[i]);
-			i++;
-		}
+		// Just for debug purpouses
+		// printf("Final array: \n");
+		// i = 0;
+		// while(command_args[i]) {
+		// 	printf("* %s\n", command_args[i]);
+		// 	i++;
+		// }
 
-		printf("\n\n------");
+		// printf("----------\n");
 
 		execvp(command_args[0], command_args);
 		close(file_descriptor);
@@ -212,7 +255,6 @@ int execute_line(char **args) {
 	}
 
 	wait(NULL);
-	printf("------------------------------\n");
 	return 0;
 }
 
@@ -241,10 +283,10 @@ int main(int argc, char** argv) {
 		// Interactive mode
 		char* line;
 
-		while((line=readline("sh > ")) != NULL) {
+		while((line=readline("sh $ ")) != NULL) {
 			if(*line) {
 				add_history(line);
-				execute_line(isolate_arguments(line));
+				execute_line(isolate_arguments(trim(line)));
 				free(line);
 			}
 		}
