@@ -25,7 +25,7 @@ bool batch_mode = false;														// Indicates whether interpreter had suppl
 // DONE - Możliwość uruchamiania poleceń z dowolną liczbą argumentów w trybie pierwszoplanowym (interpreter oczekuje na zakończenie wykonania procesu). Wymagane na ocenę 3.0.
 // DONE - Obsługa przekierowań strumieni wejściowych i wyjściowych do i z plików. Wymagane na ocenę 3.0.
 // ???  - Obsługa komentarzy.
-// IN_PROGRESS - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
+// NOTIFICATIONS MALFUNCTION - Uruchamianie poleceń z dowolną liczbą argumentów w tle wraz z powiadamianiem o zakończeniu tych procesów (PID + status). Wymagane na ocenę 3.5.
 // DONE - Obsługa trybu interaktywnego i wsadowego. Wymagane na ocenę 3.5.
 // TODO - Obsługa procesów zombie. Wymagane na ocenę 4.0.
 
