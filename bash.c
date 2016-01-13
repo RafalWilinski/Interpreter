@@ -29,6 +29,46 @@ bool batch_mode = false;														// Indicates whether interpreter had suppl
 // DONE - Obsługa trybu interaktywnego i wsadowego. Wymagane na ocenę 3.5.
 // TODO - Obsługa procesów zombie. Wymagane na ocenę 4.0.
 
+
+// Scope change! 
+
+// Napisz program, który będzie realizował dużą część zadań interpretera poleceń. Zadanie można wykonać etapami, dodając kolejne funkcje:
+// DONE 1. Zaimplementuj mechanizm odczytu poleceń z linii komend. Wykorzystaj do tego celu bi- bliotekę readline.
+// DONE 2. Zaimplementujmechanizmuruchamianiaprostychpoleceńzargumentami.Interpreterpo uruchomieniu polecenia czeka na jego zakończenie.
+// Uzupełnieniem tego zadania może być wyświetlanie statusu zakończenia wykonanego po- lecenia.
+// DONE 3. Dodaj obsługę przekierowań standardowego wyjścia i standardowego wejścia uruchamia- nych poleceń. Możliwe powinno więc być wykonanie następujących zleceń:
+// # ls -l > out.txt
+// # grep abc < dane.txt
+// # sort < dane.txt > out.txt
+// TODO 4. Dodaj obsługę przerywania programów kombinacją Ctrl-C , nie powodując przerywania pracy interpretera.
+// DONE 5. Zaimplementujobsługęwewnętrznegopoleceniaexit,powodującegozakończeniepracyin- terpretera.
+// ADD NOTIFICATION 6. Zaimplementuj obsługę procesów pracujących w tle. Ich zakończenie powinno powodować wyświetlenie informacji o końcowy statusie procesu. Rozważ implementację wstrzymywa- nia i wznawiania procesów: kombinacja Ctrl-Z , komendy fg, bg, jobs.
+// DONE 7. Dodajrozpoznawaniepracyinteraktywnejiwsadowejkorzystajączfunkcjiisatty().Wtry- bie wsadowym interpreter nie powinien wypisywać znaku zachęty. Efektem powinna być możliwość wykonania skryptu, np.:
+//            #!/home/student/mysh
+//            ls -l
+//            ps ax > out.txt
+// 
+// TODO 8. Dodaj obsługę potoków do interpretera. Początkowo pojedynczego potoku, docelowo do- wolnej ich liczby. Przykładowe zlecenia:
+// # ps ax | head
+// # ps ax|head
+// # ls -l | tr a-z A-Z | sort -n -k 5,5
+// Mechanizm obsługi potoków powinien poprawnie współpracować z przekierowywaniem stru- mieni standardowych:
+// # cat < dane.txt | tr abc XYZ | sort > out.txt
+// TODO 9. Dodajobsługęwewnętrznejkomendyechowypisującejtekstyprzekazanejakoargumenty.
+// TODO 10. Dodaj obsługę argumentów z linii poleceń w postaci zmiennych pozycyjnych ($1, $2, itd.). Powinno to umożliwić uruchomienie np. poniższego skryptu:
+//            #!/home/student/mysh
+//            ls -l $1 | tr -s ’ ’ ’\t’ | cut -f $2
+// TODO 11. Dodaj do interpretera obsługę zmiennych środowiskowych. Dla uproszczenia wszystkie zmienne mogą być domyślnie eksportowane:
+// > X=10
+// > echo $X
+// 10
+// > zmienna=”Ala ma kota” > echo $zmienna
+// Ala ma kota
+// > unset zmienna
+// > echo $zmienna
+// >
+// Obsługę zmiennych umożliwia funkcja setenv().
+
 int background_process_end_notification(int signum) {
 	printf("Odebrano sygnal %d\n", signum);
     exit(0);
