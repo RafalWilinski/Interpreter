@@ -5,6 +5,8 @@
 #include <readline/history.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/errno.h>
+#include <sys/fcntl.h>
 
 #include "list.h"
 #include "builtin.h"
@@ -40,7 +42,7 @@ typedef struct _kvp {
  * Helper functions (signal handling, freeing memory, printing, iterating
  */
 void SIGINT_handler(int signal_number) {
-    printf("\nSignal: %d\n", signal_number);
+    printf("\n[%d] Signal: %d\n", getpid(), signal_number);
 }
 
 void free_string(void *data) {
@@ -97,6 +99,30 @@ bool iterate_string(void *data) {
 bool iterate_redirect(void *data) {
     print_input_redirect(*(InputRedirect **)data);
     return TRUE;
+}
+
+int* redir(generic_list redirects) {
+    FILE* fd;
+    int i = 0;
+    listNode* _tmp = redirects.head;
+
+    while(_tmp) {
+        InputRedirect* _redir = *(InputRedirect **) _tmp->data;
+        char* mode = (_redir->TYPE == 0) ? "r" : ((_redir->TYPE == 1) ? "w+" : "a");
+        print_input_redirect(_redir);
+        printf("Opening file (%s): %s\n", mode, _redir->file);
+        fd = fopen(_redir->file, mode);
+        if (fd == NULL) {
+            perror("Error");
+        } else {
+            printf("File opened!\n");
+            if (_redir->TYPE  > 0) dup2(fileno(fd), 1);
+            else dup2(fileno(fd), STDIN_FILENO);
+            fclose(fd);
+        }
+        _tmp = _tmp->next;
+        i++;
+    }
 }
 
 char** list_to_args(generic_list string_list) {
@@ -284,7 +310,9 @@ Command* assemble_commands(char ** _parts) {
 int spawn_proc (int in, int out, Command* cmd) {
     pid_t pid;
     int status = 0;
+
     list_prepend(&cmd->arguments, &cmd->command);
+
     if ((pid = fork ()) == 0) {
         if (in != 0) {
             dup2 (in, 0);
@@ -295,7 +323,10 @@ int spawn_proc (int in, int out, Command* cmd) {
             close (out);
         }
 
-        return execvp (cmd->command, (char * const *) list_to_args(cmd->arguments));
+        redir(cmd->redirect);
+
+        execvp (cmd->command, (char * const *) list_to_args(cmd->arguments));
+        exit(errno);
     }
     waitpid(pid, &status, WCONTINUED);
     return pid;
@@ -320,12 +351,17 @@ int fork_pipes (Command *cmd) {
     int status = 0;
     list_prepend(&tmp->arguments, &tmp->command);
     if((last_pid = fork()) == 0) {
-        if (in != 0 && n > 1) dup2 (in, 0); // Read from previous job
-        return execvp (tmp->command, list_to_args(tmp->arguments));
+        if (in != 0 && n > 1) {
+            printf("Reading from previous...");
+            dup2 (in, 0);
+        } // Read from previous job
+        redir(cmd->redirect);
+
+        execvp (tmp->command, list_to_args(tmp->arguments));
+        exit(errno);
     }
     else {
         waitpid(last_pid, &status, 0);
-        printf("Waitpid end: %d\n", status);
         free(cmd);
         return status;
     }
@@ -341,26 +377,37 @@ void execute_command(Command* cmd) {
     if (builtin_num > -1) {
         chld_status = (*builtin_func[builtin_num]) (list_to_args(cmd->arguments));
     } else {
-        // Check if it's env variable related command
+        // Check if it's get env variable related command
         if(cmd->command[0] == '$' && cmd->command[1]) {
             char* key = cmd->command;
             key++;
             char* value = get_env_var(key);
             if(value != NULL) {
-                printf("Last status: %s\n", value);
+                printf("%s\n", value);
             } else {
                 printf("(null)\n");
             }
-        } else {
-            chld_status = fork_pipes(cmd);
         }
 
-        chld_status = chld_status >> 8;
-        printf("S: %d\n", chld_status);
+        // If command has '=' sign, we're assuming it's env variable change
+        else if(strchr(cmd->command, '=') != NULL) {
+            const char breaking[2] = "=";
+            char* key = strtok(cmd->command, breaking);
+            char* value = strtok(cmd->command, breaking);
+            change_or_set_env_var(key , value);
+        }
 
-        sprintf(str, "%d", chld_status);
-        change_or_set_env_var("?", str);
+        // Else we assume it's command to be execvp'ed
+        else {
+            chld_status = fork_pipes(cmd);
+        }
     }
+
+    chld_status = chld_status >> 8;
+    printf("S: %d\n", chld_status);
+
+    sprintf(str, "%d", chld_status);
+    change_or_set_env_var("?", str);
 }
 
 int main(int argc, char** argv) {
