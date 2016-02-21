@@ -40,7 +40,7 @@ typedef struct _kvp {
  * Helper functions (signal handling, freeing memory, printing, iterating
  */
 void SIGINT_handler(int signal_number) {
-    printf("Signal: %d\n", signal_number);
+    printf("\nSignal: %d\n", signal_number);
 }
 
 void free_string(void *data) {
@@ -79,6 +79,16 @@ int num_or_args(char** args) {
     return _iter;
 }
 
+int chain_length(Command* cmd) {
+    int _iter = 0;
+    Command* tmp = cmd;
+    while(tmp) {
+        _iter++;
+        tmp = tmp->next;
+    }
+    return _iter;
+}
+
 bool iterate_string(void *data) {
     printf("%s ", *(char **)data);
     return TRUE;
@@ -91,7 +101,7 @@ bool iterate_redirect(void *data) {
 
 char** list_to_args(generic_list string_list) {
     int _list_size = list_size(&string_list), _iter = 0;
-    char** _args = (char**) calloc((size_t) _list_size, sizeof(char*));
+    char** _args = (char**) calloc((size_t) _list_size + 1, sizeof(char*));
 
     listNode* elem = string_list.head;
     while(elem != NULL) {
@@ -99,6 +109,7 @@ char** list_to_args(generic_list string_list) {
         elem = elem->next;
         _iter++;
     }
+    _args[_list_size] = 0;
     return _args;
 }
 
@@ -151,10 +162,6 @@ void add_background_job(char* name, pid_t pid) {
  * Environment Variables
  */
 
-bool iterate_env_var(void *data) {
-    EnvVariable* _cur = *(EnvVariable **) data;
-}
-
 void change_or_set_env_var(char* key, char* value) {
     bool _found = FALSE;
     EnvVariable* _cur;
@@ -164,14 +171,12 @@ void change_or_set_env_var(char* key, char* value) {
 
         if(strcmp(_cur->key, key) == 0) {
             _found = TRUE;
-            printf("Key found: %s : %s\n", _cur->key, _cur->value);
-            _cur->value = value;
+            _cur->value = strdup(value);
         }
         elem = elem->next;
     }
 
     if(!_found) {
-        printf("Value absent, adding...\n");
         _cur = (EnvVariable*) malloc(sizeof(EnvVariable));
         _cur->key = key;
         _cur->value = value;
@@ -196,9 +201,8 @@ char* get_env_var(char* key) {
     listNode* elem = env_variables.head;
     while(elem != NULL) {
         _cur = *(EnvVariable **) (elem->data);
-//        printf("K[%s] = %s vs %s", _cur->key, _cur->value, key);
         if(strcmp(_cur->key, key) == 0) {
-            return _cur->value;
+            return strdup(_cur->value);
         }
         elem = elem->next;
     }
@@ -230,7 +234,7 @@ Command* assemble_commands(char ** _parts) {
         } else if (_parts[_iter][0] == '>') {
             _input_redirect_file = TRUE;
             if(_parts[_iter][1] && _parts[_iter][1] == '>') _inputRedirect->TYPE = 2;
-            _inputRedirect->TYPE = 1;
+            else _inputRedirect->TYPE = 1;
         }
 
         // If predecessor was redirect, second part must be a file
@@ -274,53 +278,89 @@ Command* assemble_commands(char ** _parts) {
         _iter++;
     }
 
-    print_command(_cmds_list_head);
     return _cmds_list_head;
 }
 
-void execute_command(Command* cmd) {
-    int result = 0, builtin_num = -1, chld_status = 0;
+int spawn_proc (int in, int out, Command* cmd) {
     pid_t pid;
+    int status = 0;
+    list_prepend(&cmd->arguments, &cmd->command);
+    if ((pid = fork ()) == 0) {
+        if (in != 0) {
+            dup2 (in, 0);
+            close (in);
+        }
+        if (out != 1) {
+            dup2 (out, 1);
+            close (out);
+        }
 
+        return execvp (cmd->command, (char * const *) list_to_args(cmd->arguments));
+    }
+    waitpid(pid, &status, WCONTINUED);
+    return pid;
+}
+
+int fork_pipes (Command *cmd) {
+    int i, n = chain_length(cmd), in = 0, fd [2];
+    pid_t last_pid;
+
+    Command* tmp = cmd;
+    for (i = 0; i < n - 1; i++) {
+        pipe (fd);
+        /* f [1] is the write end of the pipe, we carry `in` from the prev iteration.  */
+        spawn_proc (in, fd [1], tmp);
+        /* No need for the write end of the pipe, the child will write here.  */
+        close (fd [1]);
+        /* Keep the read end of the pipe, the next child will read from there.  */
+        in = fd [0];
+        tmp = tmp->next;
+    }
+
+    int status = 0;
+    list_prepend(&tmp->arguments, &tmp->command);
+    if((last_pid = fork()) == 0) {
+        if (in != 0 && n > 1) dup2 (in, 0); // Read from previous job
+        return execvp (tmp->command, list_to_args(tmp->arguments));
+    }
+    else {
+        waitpid(last_pid, &status, 0);
+        printf("Waitpid end: %d\n", status);
+        free(cmd);
+        return status;
+    }
+}
+
+
+void execute_command(Command* cmd) {
+    int builtin_num = -1, chld_status = 0;
+    char str[15];
 
     // Check if entered command isn't already implemented
     builtin_num = is_builtin(cmd->command);
     if (builtin_num > -1) {
-        chld_status = (*builtin_func[builtin_num])(list_to_args(cmd->arguments));
+        chld_status = (*builtin_func[builtin_num]) (list_to_args(cmd->arguments));
     } else {
         // Check if it's env variable related command
-        if(cmd->command[0] == '$' && cmd->command[1] != NULL) {
+        if(cmd->command[0] == '$' && cmd->command[1]) {
             char* key = cmd->command;
             key++;
             char* value = get_env_var(key);
             if(value != NULL) {
-                printf("%s\n", value);
+                printf("Last status: %s\n", value);
             } else {
                 printf("(null)\n");
             }
+        } else {
+            chld_status = fork_pipes(cmd);
         }
 
-        // If it's not, just do your things
-        else {
-            printf("Execvp... ");
-            pid = fork();
-            if (pid == 0) {
-                char **args = list_to_args(cmd->arguments);
+        chld_status = chld_status >> 8;
+        printf("S: %d\n", chld_status);
 
-                if (num_or_args(args) == 0) {
-                    args[0] = strdup(cmd->command);
-                }
-                printf("Child process pid %d\n", getpid());
-                chld_status = execvp(cmd->command, args);
-            } else {
-                waitpid(pid, &chld_status, 0);
-                printf("Main process pid %d\n", getpid());
-            }
-        }
+        sprintf(str, "%d", chld_status);
+        change_or_set_env_var("?", str);
     }
-
-    printf("Status: %d\n", chld_status>>8);
-    free(cmd);
 }
 
 int main(int argc, char** argv) {
@@ -337,7 +377,7 @@ int main(int argc, char** argv) {
         for(i = 0; i < argc - 1; i++) {
             arguments[i] = argv[i + 1];
         }
-        arguments[argc] = '\0';
+        arguments[argc] = 0;
         cmd = assemble_commands(arguments);
 
         execute_command(cmd);

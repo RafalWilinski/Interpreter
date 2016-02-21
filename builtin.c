@@ -10,7 +10,7 @@ int _cmds_count() {
 }
 
 int __echo(char ** string) {
-    printf("%s", string[0]);
+    printf("%s\n", string[0]);
     return 1;
 }
 
