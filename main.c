@@ -10,33 +10,10 @@
 
 #include "list.h"
 #include "builtin.h"
+#include "main.h"
 
-bool batch_mode = FALSE;
 generic_list background_jobs;
 generic_list env_variables;
-
-typedef struct _background_job_struct {
-    pid_t job_pid;
-    char* command;
-} BackgroundJob;
-
-typedef struct _input_redirect {
-    int TYPE; // 0 - input, 1 - output, 2 - append
-    char* file;
-} InputRedirect;
-
-typedef struct _cmd_struct {
-    char* command;
-    bool is_background;
-    generic_list arguments;
-    generic_list redirect;
-    struct _cmd_struct* next;
-} Command;
-
-typedef struct _kvp {
-    char* key;
-    char* value;
-} EnvVariable;
 
 /*
  * Helper functions (signal handling, freeing memory, printing, iterating
@@ -81,6 +58,10 @@ int num_or_args(char** args) {
     return _iter;
 }
 
+generic_list get_bck_jobs() {
+    return background_jobs;
+}
+
 int chain_length(Command* cmd) {
     int _iter = 0;
     Command* tmp = cmd;
@@ -101,7 +82,7 @@ bool iterate_redirect(void *data) {
     return TRUE;
 }
 
-int* redir(generic_list redirects) {
+void redir(generic_list redirects) {
     FILE* fd;
     int i = 0;
     listNode* _tmp = redirects.head;
@@ -181,6 +162,7 @@ void add_background_job(char* name, pid_t pid) {
     BackgroundJob* bck_job = (BackgroundJob*) malloc(sizeof(BackgroundJob));
     bck_job->command = name;
     bck_job->job_pid = pid;
+    list_append(&background_jobs, &bck_job);
 }
 
 
@@ -355,13 +337,16 @@ int fork_pipes (Command *cmd) {
             printf("Reading from previous...");
             dup2 (in, 0);
         } // Read from previous job
-        redir(cmd->redirect);
+        redir(tmp->redirect);
 
         execvp (tmp->command, list_to_args(tmp->arguments));
         exit(errno);
     }
     else {
-        waitpid(last_pid, &status, 0);
+        int _option = tmp->is_background ? WNOHANG : WCONTINUED;
+        if(tmp->is_background) add_background_job(tmp->command, last_pid);
+
+        waitpid(last_pid, &status, _option);
         free(cmd);
         return status;
     }
@@ -419,7 +404,6 @@ int main(int argc, char** argv) {
     if(argc >= 2) {
         int i = 0;
         char** arguments = (char**) calloc(sizeof(char*), (size_t) argc);
-        batch_mode = TRUE;
 
         for(i = 0; i < argc - 1; i++) {
             arguments[i] = argv[i + 1];
@@ -432,6 +416,8 @@ int main(int argc, char** argv) {
     } else {
         char* line;
         signal(SIGINT, SIGINT_handler);
+        signal(SIGTSTP, SIGINT_handler);
+        signal(SIGCONT, SIGINT_handler);
 
         while((line = readline("sh $ ")) != NULL) {
             if(*line) {
