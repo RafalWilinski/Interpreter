@@ -12,6 +12,7 @@
 #include "builtin.h"
 #include "main.h"
 
+int main_pid;
 generic_list background_jobs;
 generic_list env_variables;
 
@@ -20,6 +21,9 @@ generic_list env_variables;
  */
 void SIGINT_handler(int signal_number) {
     printf("\n[%d] Signal: %d\n", getpid(), signal_number);
+    if(signal_number == 18 && getpid() != main_pid) {
+        kill(getpid(), SIGSTOP);
+    }
 }
 
 void free_string(void *data) {
@@ -56,10 +60,6 @@ int num_or_args(char** args) {
         _iter++;
     }
     return _iter;
-}
-
-generic_list get_bck_jobs() {
-    return background_jobs;
 }
 
 int chain_length(Command* cmd) {
@@ -163,6 +163,33 @@ void add_background_job(char* name, pid_t pid) {
     bck_job->command = name;
     bck_job->job_pid = pid;
     list_append(&background_jobs, &bck_job);
+}
+
+generic_list get_bck_jobs() {
+    return background_jobs;
+}
+
+void check_bck_jobs(bool print_all_statuses) {
+    int _status, _wait_stat, _iter = 0;
+    BackgroundJob* _bckjb;
+    listNode* _elem = background_jobs.head;
+    while(_elem != NULL) {
+        _bckjb = *(BackgroundJob**) _elem->data;
+
+        _wait_stat = waitpid(_bckjb->job_pid, &_status, WNOHANG);
+
+        if(_wait_stat == _bckjb->job_pid) {
+            printf("[%d] %d \t\tExited (%d), Signal: %d\n", _iter, _bckjb->job_pid, WEXITSTATUS(_status), WTERMSIG(_bckjb->job_pid));
+            _iter++;
+        } else if (_wait_stat == 0){
+            if(print_all_statuses) printf("[%d] %d \t\t%s - Running...\n", _iter, _bckjb->job_pid, _bckjb->command);
+            _iter++;
+        }
+
+
+
+        _elem = _elem->next;
+    }
 }
 
 
@@ -344,7 +371,10 @@ int fork_pipes (Command *cmd) {
     }
     else {
         int _option = tmp->is_background ? WNOHANG : WCONTINUED;
-        if(tmp->is_background) add_background_job(tmp->command, last_pid);
+        if(tmp->is_background) {
+            add_background_job(tmp->command, last_pid);
+            printf("%d\n", last_pid);
+        }
 
         waitpid(last_pid, &status, _option);
         free(cmd);
@@ -397,6 +427,8 @@ void execute_command(Command* cmd) {
 
 int main(int argc, char** argv) {
     Command *cmd;
+
+    main_pid = getpid();
     list_new(&background_jobs, sizeof(BackgroundJob*), free_bck_job);
     list_new(&env_variables, sizeof(EnvVariable*), free_env_var);
     change_or_set_env_var("?", "0");
@@ -422,6 +454,7 @@ int main(int argc, char** argv) {
         while((line = readline("sh $ ")) != NULL) {
             if(*line) {
                 add_history(line);
+                check_bck_jobs(FALSE);
                 cmd = assemble_commands(isolate_words_from_stream(line));
                 free(line);
 

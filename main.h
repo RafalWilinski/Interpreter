@@ -25,5 +25,6 @@ typedef struct _kvp {
 } EnvVariable;
 
 generic_list get_bck_jobs();
+void check_bck_jobs(bool print_all);
 
 #endif //SHELL_MAIN_H

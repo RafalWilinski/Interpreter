@@ -48,7 +48,7 @@ int __jobs(char ** args) {
     generic_list bck_jobs = get_bck_jobs();
     if(bck_jobs.logicalLength != 0) {
         printf("Background jobs: \n");
-        list_for_each(&bck_jobs, &iterate_bck);
+        check_bck_jobs(TRUE);
     }
     return 1;
 }
